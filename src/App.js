@@ -51,7 +51,7 @@ function App() {
         });
         authError = signUpError;
         if (!authError) {
-          alert("Success! Account created successfully!\Wellcome to Abdul Raheem's Website. ");
+          alert("Success! Account created successfully!Wellcome to Abdul Raheem's Website. ");
           setIsSignUp(false);
           setEmail('');
           setPassword('');
