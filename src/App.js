@@ -82,8 +82,10 @@ function App() {
     await supabase.storage.from('Study-Materials').upload(fileName, file);
     const { data: publicUrlData } = supabase.storage.from('Study-Materials').getPublicUrl(fileName);
     await supabase.from('notes').insert([{ title, subject, file_url: publicUrlData.publicUrl }]);
-
+    
+    // SUCCESS ALERT
     alert("✅ Notes uploaded successfully!");
+    
     setLoading(false);
     setTitle(''); setSubject(''); setFile(null);
     fetchNotes();
@@ -162,6 +164,11 @@ function App() {
           .neon-glow-btn { width: 140px; background: linear-gradient(45deg, #00d4ff, #ff00cc); box-shadow: 0 0 15px rgba(0, 212, 255, 0.7); border: none; padding: 12px; border-radius: 25px; color: white; font-weight: bold; cursor: pointer; transition: 0.4s; }
           .heading-hover { transition: 0.3s ease; cursor: default; }
           .heading-hover:hover { text-shadow: 0 0 10px #00d4ff, 0 0 20px #ff00cc; transform: scale(1.05); }
+
+          /* Mobile Auth Center */
+          @media (max-width: 480px) {
+            .auth-card { width: 90% !important; padding: 30px 20px !important; }
+          }
         `}</style>
       </div>
     );
@@ -171,9 +178,9 @@ function App() {
     <div className="app-container" style={styles.container}>
       <NeonBackground />
       <header className="app-header" style={styles.glassHeader}>
-        <div style={{display:'flex', flexDirection:'column'}}>
+        <div style={{display:'flex', flexDirection:'column'}} className="logo-group">
             <h1 className="heading-hover" style={styles.logo}>🚀 MDCAT Flow</h1>
-            <span style={{color:'rgba(255,255,255,0.6)', fontSize:'12px', marginLeft:'5px', fontWeight:'500'}}>Hafiz Abdul Raheem Qamar</span>
+            <span className="author-name" style={{color:'rgba(255,255,255,0.6)', fontSize:'12px', marginLeft:'5px', fontWeight:'500'}}>Hafiz Abdul Raheem Qamar</span>
         </div>
         <div className="header-right" style={styles.headerRight}>
           <input className="search-bar-hover search-bar" type="text" placeholder="🔍 Search (bio, phy...)" onChange={(e)=>setSearchTerm(e.target.value)} style={styles.searchBar} />
@@ -243,16 +250,12 @@ function App() {
         /* HOVER EFFECTS */
         .heading-hover { transition: 0.3s ease; }
         .heading-hover:hover { text-shadow: 0 0 10px #00d4ff, 0 0 20px #ff00cc; transform: scale(1.02); }
-        
         .search-bar-hover:hover, .search-bar-hover:focus { box-shadow: 0 0 15px rgba(0, 212, 255, 0.4); border-color: #00d4ff !important; }
         .logout-hover:hover { background: rgba(255, 0, 0, 0.3) !important; box-shadow: 0 0 15px rgba(255, 0, 0, 0.5); color: #fff !important; }
-        
         .upload-btn-hover:hover { box-shadow: 0 0 20px #00d4ff; transform: translateY(-2px); }
         .users-list-btn-hover:hover { background: rgba(255, 255, 255, 0.15) !important; box-shadow: 0 0 15px rgba(255,255,255,0.2); }
-        
         .cat-btn-hover:hover { transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0, 212, 255, 0.3); }
         .file-label-hover:hover { background: rgba(0, 212, 255, 0.1) !important; border: 1px dashed #00d4ff !important; cursor: pointer; }
-        
         .view-pdf-hover:hover { background: #fff !important; color: #000 !important; box-shadow: 0 0 10px #fff; }
         .fav-icon-hover:hover { transform: scale(1.3); filter: drop-shadow(0 0 5px #ff00cc); }
         .back-btn-hover:hover { background: #00d4ff !important; box-shadow: 0 0 15px #00d4ff; }
@@ -261,14 +264,19 @@ function App() {
         .fav-btn-glow { box-shadow: 0 0 15px rgba(255, 0, 204, 0.5); transition: 0.3s; }
         .note-card:hover { transform: translateY(-5px); box-shadow: 0 0 20px rgba(0, 212, 255, 0.6); border-color: #00d4ff !important; transition: 0.3s; }
 
+        /* --- MOBILE CENTERING QUERIES --- */
         @media (max-width: 768px) {
-          .app-header { flex-direction: row !important; justify-content: space-between !important; padding: 10px 15px !important; }
-          .header-right { flex-direction: column-reverse; align-items: flex-end; gap: 8px !important; }
-          .search-bar { width: 130px !important; padding: 8px 12px !important; font-size: 11px; }
-          .logout-btn { padding: 4px 10px !important; font-size: 11px; }
-          .main-layout { grid-template-columns: 1fr !important; }
-          .notes-grid { grid-template-columns: 1fr !important; gap: 15px !important; }
-          .logo { font-size: 18px !important; }
+          .app-container { padding: 15px !important; display: flex !important; flex-direction: column !important; align-items: center !important; }
+          .app-header { width: 100% !important; flex-direction: column !important; align-items: center !important; text-align: center !important; gap: 15px !important; padding: 15px !important; }
+          .logo-group { align-items: center !important; }
+          .header-right { width: 100% !important; flex-direction: column !important; align-items: center !important; gap: 10px !important; }
+          .search-bar { width: 90% !important; max-width: 300px !important; padding: 10px !important; font-size: 14px !important; }
+          .logout-btn { width: 100px !important; }
+          .main-layout { width: 100% !important; display: flex !important; flex-direction: column !important; align-items: center !important; gap: 20px !important; }
+          .sidebar, .content-area { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
+          .notes-grid { grid-template-columns: 1fr !important; width: 100% !important; }
+          .cat-btn:first-child { margin-left: auto; }
+          .cat-btn:last-child { margin-right: auto; }
         }
       `}</style>
     </div>
@@ -290,7 +298,7 @@ const styles = {
   usersBtn: { background:'rgba(255,255,255,0.05)', marginTop:'15px', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', padding:'12px', borderRadius:'12px', fontWeight:'bold', cursor:'pointer', transition:'0.3s', width:'100%' },
   hiddenFileInput: { display: 'none' },
   fileLabel: { display: 'block', background: 'rgba(255,255,255,0.05)', border: '1px dashed rgba(255,255,255,0.2)', padding: '10px', borderRadius: '10px', color: '#fff', fontSize: '12px', textAlign: 'center', transition: '0.3s' },
-  categoryContainer: { display:'flex', gap:'10px', marginBottom:'25px', overflowX:'auto', paddingBottom:'5px' },
+  categoryContainer: { display:'flex', gap:'10px', marginBottom:'25px', overflowX:'auto', paddingBottom:'5px', justifyContent:'flex-start' },
   catBtn: { padding:'10px 22px', borderRadius:'20px', border:'none', color:'#fff', cursor:'pointer', whiteSpace:'nowrap', transition:'0.3s' },
   notesGrid: { display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(240px, 1fr))', gap:'20px' },
   glassNoteCard: { background:'rgba(0,0,0,0.6)', backdropFilter:'blur(15px)', padding:'22px', borderRadius:'20px', border:'1px solid rgba(255,255,255,0.15)', transition:'0.3s' },
