@@ -11,6 +11,7 @@ function App() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [notes, setNotes] = useState([]);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [usersList, setUsersList] = useState([]); // Students data ke liye state
   const [title, setTitle] = useState('');
   const [subject, setSubject] = useState('');
   const [file, setFile] = useState(null);
@@ -39,10 +40,40 @@ function App() {
     if (!error) setNotes(data);
   };
 
+  // Students fetch karne ka logic
+  const fetchUsers = async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from('public_users').select('*');
+    if (!error) {
+      setUsersList(data);
+    } else {
+      alert("Error fetching users: " + error.message);
+    }
+    setLoading(false);
+  };
+
   const handleOpenAdmin = async () => {
-    const pass = prompt("Enter Admin Password:");
+    if (!showAdminPanel) {
+        const pass = prompt("Enter Admin Password:");
+        if (pass !== ADMIN_PASSWORD) return alert("Unauthorized!");
+        await fetchUsers(); // Password sahi hone par users load karein
+        setShowAdminPanel(true);
+    } else {
+        setShowAdminPanel(false);
+    }
+  };
+
+  const handleDeleteNote = async (id) => {
+    const pass = prompt("Enter Admin Password to delete:");
     if (pass !== ADMIN_PASSWORD) return alert("Unauthorized!");
-    setShowAdminPanel(!showAdminPanel);
+    
+    const { error } = await supabase.from('notes').delete().eq('id', id);
+    if (error) {
+      alert("Error deleting note");
+    } else {
+      alert("🗑️ Note deleted successfully!");
+      fetchNotes();
+    }
   };
 
   const fetchFavorites = async (userId) => {
@@ -83,7 +114,6 @@ function App() {
     const { data: publicUrlData } = supabase.storage.from('Study-Materials').getPublicUrl(fileName);
     await supabase.from('notes').insert([{ title, subject, file_url: publicUrlData.publicUrl }]);
     
-    // SUCCESS ALERT
     alert("✅ Notes uploaded successfully!");
     
     setLoading(false);
@@ -165,7 +195,6 @@ function App() {
           .heading-hover { transition: 0.3s ease; cursor: default; }
           .heading-hover:hover { text-shadow: 0 0 10px #00d4ff, 0 0 20px #ff00cc; transform: scale(1.05); }
 
-          /* Mobile Auth Center */
           @media (max-width: 480px) {
             .auth-card { width: 90% !important; padding: 30px 20px !important; }
           }
@@ -194,6 +223,12 @@ function App() {
           <form onSubmit={handleUpload} style={styles.form}>
             <input className="input-hover" style={styles.glassInput} placeholder="Title" value={title} onChange={(e)=>setTitle(e.target.value)} />
             <input className="input-hover" style={styles.glassInput} placeholder="Subject" value={subject} onChange={(e)=>setSubject(e.target.value)} />
+            
+            <div style={{display:'flex', gap:'5px'}}>
+               <input className="input-hover" style={{...styles.glassInput, flex: 1}} placeholder="Search notes..." value={searchTerm} onChange={(e)=>setSearchTerm(e.target.value)} />
+               <button type="button" className="side-search-btn-hover" style={styles.sideSearchBtn}>🔍</button>
+            </div>
+
             <div className="file-input-wrapper">
                 <input type="file" id="file-upload" style={styles.hiddenFileInput} onChange={(e)=>setFile(e.target.files[0])} />
                 <label htmlFor="file-upload" className="file-label-hover" style={styles.fileLabel}>
@@ -209,8 +244,30 @@ function App() {
           {showAdminPanel ? (
             <div className="admin-panel" style={styles.glassNoteCard}>
                <h2 className="heading-hover" style={{color:'#00d4ff', marginBottom:'15px'}}>Student Accounts</h2>
-               <p style={{color:'rgba(255,255,255,0.7)', fontSize:'14px'}}>Dashboard active. Metadata is synced with Supabase Auth.</p>
-               <button onClick={()=>setShowAdminPanel(false)} className="back-btn-hover" style={styles.viewBtn}>Back to Notes</button>
+               
+               {/* Naya Table Design */}
+               <div style={{maxHeight: '400px', overflowY: 'auto', marginTop: '20px'}}>
+                  <table style={{width: '100%', color: '#fff', borderCollapse: 'collapse'}}>
+                    <thead>
+                      <tr style={{borderBottom: '1px solid rgba(255,255,255,0.2)'}}>
+                        <th style={{padding: '12px', textAlign: 'left', color: '#00d4ff'}}>Name</th>
+                        <th style={{padding: '12px', textAlign: 'left', color: '#00d4ff'}}>Email</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {usersList.length > 0 ? usersList.map(user => (
+                        <tr key={user.id} style={{borderBottom: '1px solid rgba(255,255,255,0.05)'}}>
+                          <td style={{padding: '12px'}}>{user.first_name || 'Student'}</td>
+                          <td style={{padding: '12px', fontSize: '13px', opacity: 0.8}}>{user.email}</td>
+                        </tr>
+                      )) : (
+                        <tr><td colSpan="2" style={{padding: '20px', textAlign: 'center'}}>No students found.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+               </div>
+
+               <button onClick={()=>setShowAdminPanel(false)} className="back-btn-hover" style={{...styles.viewBtn, marginTop: '25px', display: 'block', width: 'fit-content'}}>Back to Notes</button>
             </div>
           ) : (
             <>
@@ -229,7 +286,10 @@ function App() {
                     <span className="subject-badge-glow" style={styles.badge}>{note.subject}</span>
                     <h4 className="heading-hover" style={{color:'#fff', margin:'10px 0'}}>{note.title}</h4>
                     <div style={styles.actions}>
-                      <a href={note.file_url} target="_blank" rel="noreferrer" className="view-pdf-hover" style={styles.viewBtn}>View PDF</a>
+                      <div style={{display:'flex', gap:'8px'}}>
+                        <a href={note.file_url} target="_blank" rel="noreferrer" className="view-pdf-hover" style={styles.viewBtn}>View PDF</a>
+                        <button onClick={()=>handleDeleteNote(note.id)} className="delete-btn-hover" style={styles.deleteBtn}>🗑️ Delete</button>
+                      </div>
                       <button onClick={()=>toggleFavorite(note)} className="fav-icon-hover" style={styles.iconBtn}>{favorites.find(f=>f.id===note.id)?'❤️':'🤍'}</button>
                     </div>
                   </div>
@@ -241,13 +301,11 @@ function App() {
       </div>
 
       <style>{`
-        /* Global Fog and Effects */
         .fog-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; filter: blur(100px); z-index: -1; pointer-events: none; background: #000; }
         .fog-circle { position: absolute; border-radius: 50%; opacity: 0.4; animation: move-fog 25s infinite alternate ease-in-out; }
         .blue { width: 800px; height: 800px; background: #0055ff; top: -20%; left: -10%; }
         .pink { width: 700px; height: 700px; background: #ff00cc; bottom: -10%; right: -10%; }
         
-        /* HOVER EFFECTS */
         .heading-hover { transition: 0.3s ease; }
         .heading-hover:hover { text-shadow: 0 0 10px #00d4ff, 0 0 20px #ff00cc; transform: scale(1.02); }
         .search-bar-hover:hover, .search-bar-hover:focus { box-shadow: 0 0 15px rgba(0, 212, 255, 0.4); border-color: #00d4ff !important; }
@@ -259,12 +317,14 @@ function App() {
         .view-pdf-hover:hover { background: #fff !important; color: #000 !important; box-shadow: 0 0 10px #fff; }
         .fav-icon-hover:hover { transform: scale(1.3); filter: drop-shadow(0 0 5px #ff00cc); }
         .back-btn-hover:hover { background: #00d4ff !important; box-shadow: 0 0 15px #00d4ff; }
+        
+        .side-search-btn-hover:hover { background: #00d4ff !important; transform: scale(1.05); }
+        .delete-btn-hover:hover { background: #ff4d4d !important; color: #fff !important; box-shadow: 0 0 10px #ff4d4d; }
 
         .subject-badge-glow { box-shadow: 0 0 10px #00d4ff; border: 1px solid #00d4ff; font-weight: bold; }
         .fav-btn-glow { box-shadow: 0 0 15px rgba(255, 0, 204, 0.5); transition: 0.3s; }
         .note-card:hover { transform: translateY(-5px); box-shadow: 0 0 20px rgba(0, 212, 255, 0.6); border-color: #00d4ff !important; transition: 0.3s; }
 
-        /* --- MOBILE CENTERING QUERIES --- */
         @media (max-width: 768px) {
           .app-container { padding: 15px !important; display: flex !important; flex-direction: column !important; align-items: center !important; }
           .app-header { width: 100% !important; flex-direction: column !important; align-items: center !important; text-align: center !important; gap: 15px !important; padding: 15px !important; }
@@ -275,8 +335,6 @@ function App() {
           .main-layout { width: 100% !important; display: flex !important; flex-direction: column !important; align-items: center !important; gap: 20px !important; }
           .sidebar, .content-area { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
           .notes-grid { grid-template-columns: 1fr !important; width: 100% !important; }
-          .cat-btn:first-child { margin-left: auto; }
-          .cat-btn:last-child { margin-right: auto; }
         }
       `}</style>
     </div>
@@ -294,6 +352,7 @@ const styles = {
   glassSidebar: { background:'rgba(0,0,0,0.5)', backdropFilter:'blur(15px)', padding:'25px', borderRadius:'25px', height:'fit-content', border:'1px solid rgba(255,255,255,0.1)' },
   form: { display:'flex', flexDirection:'column', gap:'12px' },
   glassInput: { background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', padding:'12px', borderRadius:'12px', color:'#fff', outline:'none' },
+  sideSearchBtn: { background:'rgba(0,212,255,0.2)', border:'1px solid #00d4ff', borderRadius:'10px', color:'#fff', cursor:'pointer', transition:'0.3s', padding:'0 10px' },
   glassBtn: { background:'linear-gradient(45deg, #00d4ff, #0055ff)', color:'#fff', border:'none', padding:'12px', borderRadius:'12px', fontWeight:'bold', cursor:'pointer', transition:'0.3s' },
   usersBtn: { background:'rgba(255,255,255,0.05)', marginTop:'15px', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', padding:'12px', borderRadius:'12px', fontWeight:'bold', cursor:'pointer', transition:'0.3s', width:'100%' },
   hiddenFileInput: { display: 'none' },
@@ -305,6 +364,7 @@ const styles = {
   badge: { background:'rgba(0,212,255,0.2)', color:'#00d4ff', padding:'4px 12px', borderRadius:'12px', fontSize:'11px' },
   actions: { display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:'15px' },
   viewBtn: { textDecoration:'none', color:'#fff', background:'rgba(255,255,255,0.1)', padding:'8px 15px', borderRadius:'10px', fontSize:'12px', transition:'0.3s' },
+  deleteBtn: { background:'rgba(255,77,77,0.1)', color:'#ff4d4d', border:'1px solid rgba(255,77,77,0.3)', padding:'8px 12px', borderRadius:'10px', fontSize:'12px', cursor:'pointer', transition:'0.3s' },
   iconBtn: { background:'none', border:'none', cursor:'pointer', fontSize:'20px', transition:'0.3s' },
   authCard: { background:'rgba(0,0,0,0.6)', backdropFilter:'blur(20px)', padding:'40px', borderRadius:'40px', border:'1px solid rgba(255,255,255,0.1)', width:'420px', textAlign:'center', position:'relative', zIndex:'10' },
   authInput: { width:'100%', background:'rgba(255,255,255,0.08)', border:'1px solid rgba(255,255,255,0.1)', padding:'15px', borderRadius:'15px', color:'#fff', marginBottom:'5px', outline:'none' }
