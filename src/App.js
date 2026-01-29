@@ -5,6 +5,8 @@ function App() {
   const [session, setSession] = useState(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [notes, setNotes] = useState([]);
@@ -12,7 +14,7 @@ function App() {
   const [subject, setSubject] = useState('');
   const [file, setFile] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [favorites, setFavorites] = useState([]);
+  const [favorites, setFavorites] = useState([]); 
   const [loading, setLoading] = useState(false);
 
   const ADMIN_PASSWORD = "hafiz20070@.";
@@ -20,163 +22,106 @@ function App() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      if (session) fetchFavorites(session.user.id);
     });
-    supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      if (session) fetchFavorites(session.user.id);
+      else setFavorites([]);
     });
     fetchNotes();
+    return () => { authListener.subscription.unsubscribe(); };
   }, []);
 
   const fetchNotes = async () => {
-    const { data, error } = await supabase
-      .from('notes')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('notes').select('*').order('created_at', { ascending: false });
     if (!error) setNotes(data);
+  };
+
+  const fetchFavorites = async (userId) => {
+    const { data, error } = await supabase.from('favorites').select('note_id, notes (*)').eq('user_id', userId);
+    if (!error && data) {
+      const favNotes = data.map(f => f.notes).filter(n => n !== null);
+      setFavorites(favNotes);
+    }
   };
 
   const handleAuth = async (e) => {
     e.preventDefault();
     setLoading(true);
-    let authError = null;
-
     try {
       if (isSignUp) {
-        const { error: signUpError } = await supabase.auth.signUp({ 
+        const { error } = await supabase.auth.signUp({ 
           email, 
           password,
-          options: {
-            emailRedirectTo: window.location.origin
-          }
+          options: { data: { first_name: firstName, last_name: lastName } }
         });
-        authError = signUpError;
-        if (!authError) {
-          alert("Success! Account created successfully!Wellcome to Abdul Raheem's Website. ");
-          setIsSignUp(false);
-          setEmail('');
-          setPassword('');
-        }
+        if (error) alert(error.message);
+        else alert("Registration Successful! Please check email.");
       } else {
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-        authError = signInError;
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) alert(error.message);
       }
-
-      if (authError) {
-        alert(authError.message);
-      }
-    } catch (err) {
-      alert("An unexpected error occurred. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
+    } catch (err) { alert("An error occurred."); }
+    finally { setLoading(false); }
   };
 
   const handleUpload = async (e) => {
     e.preventDefault();
-    const pass = prompt("Enter Admin Password to Upload:");
-    if (pass !== ADMIN_PASSWORD) {
-      alert("Unauthorized! Only Admin can upload notes.");
-      return;
-    }
-    if (!file || !title || !subject) return alert("Please fill all fields");
+    const pass = prompt("Enter Admin Password:");
+    if (pass !== ADMIN_PASSWORD) return alert("Unauthorized!");
     setLoading(true);
     const fileName = `${Date.now()}_${file.name}`;
-    const { error: uploadError } = await supabase.storage.from('Study-Materials').upload(fileName, file);
-    if (uploadError) {
-      alert("Upload Error: " + uploadError.message);
-      setLoading(false);
-      return;
-    }
+    await supabase.storage.from('Study-Materials').upload(fileName, file);
     const { data: publicUrlData } = supabase.storage.from('Study-Materials').getPublicUrl(fileName);
     await supabase.from('notes').insert([{ title, subject, file_url: publicUrlData.publicUrl }]);
     setLoading(false);
     setTitle(''); setSubject(''); setFile(null);
     fetchNotes();
-    alert("MDCAT Note Uploaded Successfully!");
   };
 
-  const deleteNote = async (id, filePath) => {
-    const pass = prompt("Enter Admin Password to Delete:");
-    if (pass !== ADMIN_PASSWORD) return alert("Unauthorized!");
-    if (!window.confirm("Are you sure you want to delete this note?")) return;
-    try {
-      const fileName = filePath.split('/').pop();
-      await supabase.storage.from('Study-Materials').remove([fileName]);
-      await supabase.from('notes').delete().eq('id', id);
-      fetchNotes(); 
-    } catch (err) { alert("Error deleting"); }
-  };
-
-  const toggleFavorite = (note) => {
-    if (favorites.find(f => f.id === note.id)) {
+  const toggleFavorite = async (note) => {
+    if (!session) return alert("Login First!");
+    const isFav = favorites.find(f => f.id === note.id);
+    if (isFav) {
+      await supabase.from('favorites').delete().eq('user_id', session.user.id).eq('note_id', note.id);
       setFavorites(favorites.filter(f => f.id !== note.id));
     } else {
+      await supabase.from('favorites').insert([{ user_id: session.user.id, note_id: note.id }]);
       setFavorites([...favorites, note]);
     }
   };
 
   const filteredNotes = notes.filter(n => {
-    const noteSub = n.subject.toLowerCase().trim();
+    const noteSub = n.subject.toLowerCase();
     const search = searchTerm.toLowerCase();
     const matchesSearch = n.title.toLowerCase().includes(search) || noteSub.includes(search);
+    if (selectedCategory === 'Favorites') return favorites.some(fav => fav.id === n.id) && matchesSearch;
     if (selectedCategory === 'All') return matchesSearch;
-    if (selectedCategory === 'Biology') return noteSub.includes('bio') && matchesSearch;
-    return noteSub === selectedCategory.toLowerCase() && matchesSearch;
+    const subMatch = { 'Biology': 'bio', 'Physics': 'phy', 'Chemistry': 'chem', 'English': 'eng' };
+    return noteSub.includes(subMatch[selectedCategory] || selectedCategory.toLowerCase()) && matchesSearch;
   });
 
   if (!session) {
     return (
       <div style={styles.authPage}>
-        <style>{`
-          @keyframes smokeGlow {
-            0% { box-shadow: 0 0 20px rgba(0, 212, 255, 0.2); }
-            50% { box-shadow: 0 0 50px rgba(255, 0, 204, 0.3); }
-            100% { box-shadow: 0 0 20px rgba(0, 212, 255, 0.2); }
-          }
-          .smoke-box {
-            animation: smokeGlow 4s infinite ease-in-out;
-            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-          }
-          .smoke-box:hover {
-            transform: scale(1.02);
-            box-shadow: 0 0 80px rgba(0, 212, 255, 0.4) !important;
-          }
-          .input-smoke:focus {
-            box-shadow: 0 0 15px rgba(0, 212, 255, 0.5);
-            border: 1px solid rgba(0, 212, 255, 0.8) !important;
-          }
-        `}</style>
-        <div className="smoke-box" style={styles.authCard}>
-          <h2 style={styles.authTitle}>{isSignUp ? 'Join MDCAT Flow' : 'Student Login'}</h2>
+        <div style={styles.authCard}>
+          <h2 style={{color:'#fff', marginBottom:'20px'}}>{isSignUp ? 'Create Account' : 'Student Login'}</h2>
           <form onSubmit={handleAuth} style={styles.form}>
-            <input 
-              className="input-smoke" 
-              style={styles.authInput} 
-              type="email" 
-              placeholder="Email Address" 
-              value={email} 
-              onChange={(e) => setEmail(e.target.value)} 
-              required 
-            />
-            <input 
-              className="input-smoke" 
-              style={styles.authInput} 
-              type="password" 
-              placeholder="Password" 
-              value={password} 
-              onChange={(e) => setPassword(e.target.value)} 
-              required 
-            />
-            <button style={styles.authBtn} type="submit" disabled={loading}>
-              {loading ? 'Processing...' : (isSignUp ? 'Create Account' : 'Sign In')}
+            {isSignUp && (
+              <div style={{display:'flex', gap:'10px'}}>
+                <input style={styles.authInput} placeholder="First Name" onChange={(e)=>setFirstName(e.target.value)} required />
+                <input style={styles.authInput} placeholder="Last Name" onChange={(e)=>setLastName(e.target.value)} required />
+              </div>
+            )}
+            <input style={styles.authInput} type="email" placeholder="Email" onChange={(e)=>setEmail(e.target.value)} required />
+            <input style={styles.authInput} type="password" placeholder="Password" onChange={(e)=>setPassword(e.target.value)} required />
+            <button className="glow-btn" style={styles.authBtn} type="submit">
+              {loading ? 'Processing...' : (isSignUp ? 'Sign Up' : 'Login')}
             </button>
           </form>
-          <p onClick={() => { setIsSignUp(!isSignUp); setEmail(''); setPassword(''); }} style={styles.authToggle}>
-            {isSignUp ? 'Already have an account? Login' : "Don't have an account? Create one"}
+          <p onClick={() => setIsSignUp(!isSignUp)} style={{color:'#00d4ff', cursor:'pointer', marginTop:'20px', fontSize:'14px'}}>
+            {isSignUp ? 'Already have an account? Login' : 'New student? Create an account'}
           </p>
         </div>
       </div>
@@ -185,109 +130,83 @@ function App() {
 
   return (
     <div style={styles.container}>
-      <style>{`
-        .glass-card:hover { transform: translateY(-10px) scale(1.02); background: rgba(255, 255, 255, 0.12) !important; box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
-        .action-btn:hover { filter: brightness(1.2); transform: scale(1.1); }
-        .cat-btn:hover { background: rgba(0, 212, 255, 0.4) !important; }
-      `}</style>
-
-      <div style={styles.circle1}></div>
-      <div style={styles.circle2}></div>
-
       <header style={styles.glassHeader}>
         <h1 style={styles.logo}>🚀 MDCAT Flow</h1>
-        <div style={{display:'flex', gap:'20px', alignItems:'center'}}>
-          <input 
-            type="text" 
-            placeholder="🔍 Search notes..." 
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={styles.searchBar}
-          />
-          <button onClick={handleLogout} style={styles.logoutBtn}>Logout</button>
+        <div style={{display:'flex', gap:'15px'}}>
+          <input className="search-hover" type="text" placeholder="🔍 Search (bio, phy...)" onChange={(e)=>setSearchTerm(e.target.value)} style={styles.searchBar} />
+          <button onClick={() => supabase.auth.signOut()} className="logout-hover" style={styles.logoutBtn}>Logout</button>
         </div>
       </header>
 
       <div style={styles.mainGrid}>
         <aside style={styles.glassSidebar}>
-          <h3 style={{color: '#fff', marginBottom: '20px'}}>📤 Admin Upload</h3>
+          <h3 style={{color:'#fff', marginBottom:'15px'}}>📤 Admin Upload</h3>
           <form onSubmit={handleUpload} style={styles.form}>
-            <input style={styles.glassInput} type="text" placeholder="Title (e.g. Bio Ch 1)" value={title} onChange={(e) => setTitle(e.target.value)} />
-            <input style={styles.glassInput} type="text" placeholder="Subject (Bio, Physics etc)" value={subject} onChange={(e) => setSubject(e.target.value)} />
-            <input style={{color: '#fff', fontSize: '12px'}} type="file" onChange={(e) => setFile(e.target.files[0])} />
-            <button style={styles.glassBtn} className="action-btn" type="submit" disabled={loading}>
-              {loading ? 'Processing...' : 'Secure Upload'}
-            </button>
+            <input className="input-hover" style={styles.glassInput} placeholder="Title" value={title} onChange={(e)=>setTitle(e.target.value)} />
+            <input className="input-hover" style={styles.glassInput} placeholder="Subject" value={subject} onChange={(e)=>setSubject(e.target.value)} />
+            <input type="file" style={{color:'#fff', fontSize:'12px'}} onChange={(e)=>setFile(e.target.files[0])} />
+            <button className="upload-glow" style={styles.glassBtn} type="submit">Upload Now</button>
           </form>
         </aside>
 
         <main>
           <div style={styles.categoryContainer}>
-            {['All', 'Biology', 'Chemistry', 'Physics', 'English'].map(cat => (
-              <button 
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                style={{
-                  ...styles.catBtn,
-                  background: selectedCategory === cat ? 'linear-gradient(45deg, #00d4ff, #0055ff)' : 'rgba(255,255,255,0.05)',
-                  border: selectedCategory === cat ? 'none' : '1px solid rgba(255,255,255,0.1)'
-                }}
-                className="cat-btn"
-              >
-                {cat}
+            {['All', 'Biology', 'Chemistry', 'Physics', 'English', 'Favorites'].map(cat => (
+              <button key={cat} onClick={()=>setSelectedCategory(cat)} 
+                style={{...styles.catBtn, background: selectedCategory === cat ? 'linear-gradient(45deg, #00d4ff, #0055ff)' : 'rgba(255,255,255,0.05)', border: cat === 'Favorites' ? '1px solid #ff00cc' : 'none'}}>
+                {cat === 'Favorites' ? `❤️ Saved (${favorites.length})` : cat}
               </button>
             ))}
           </div>
-
           <div style={styles.notesGrid}>
             {filteredNotes.map(note => (
-              <div key={note.id} style={styles.glassNoteCard} className="glass-card">
+              <div key={note.id} className="note-card" style={styles.glassNoteCard}>
                 <span style={styles.badge}>{note.subject}</span>
-                <h4 style={{color: '#fff', margin: '15px 0'}}>{note.title}</h4>
+                <h4 style={{color:'#fff', margin:'10px 0'}}>{note.title}</h4>
                 <div style={styles.actions}>
-                  <a href={note.file_url} target="_blank" rel="noreferrer" style={styles.viewBtn} className="action-btn">View PDF</a>
-                  <div style={{display: 'flex', gap: '15px'}}>
-                    <button onClick={() => toggleFavorite(note)} style={styles.iconBtn} className="action-btn">
-                      {favorites.find(f => f.id === note.id) ? '❤️' : '🤍'}
-                    </button>
-                    <button onClick={() => deleteNote(note.id, note.file_url)} style={styles.iconBtn} className="action-btn">🗑️</button>
-                  </div>
+                  <a href={note.file_url} target="_blank" rel="noreferrer" style={styles.viewBtn}>View PDF</a>
+                  <button onClick={()=>toggleFavorite(note)} style={styles.iconBtn}>{favorites.find(f=>f.id===note.id)?'❤️':'🤍'}</button>
                 </div>
               </div>
             ))}
           </div>
         </main>
       </div>
+
+      <style>{`
+        .note-card:hover { transform: translateY(-5px); box-shadow: 0 0 20px rgba(0, 212, 255, 0.4); border-color: #00d4ff !important; transition: 0.3s; }
+        .glow-btn:hover { box-shadow: 0 0 15px #00d4ff; transform: scale(1.02); transition: 0.3s; }
+        .search-hover:hover, .input-hover:hover { border-color: #00d4ff !important; box-shadow: 0 0 10px rgba(0, 212, 255, 0.2); transition: 0.3s; }
+        .logout-hover:hover { background: #ff4d4d !important; color: #fff !important; box-shadow: 0 0 15px rgba(255, 77, 77, 0.4); transition: 0.3s; }
+        .upload-glow:hover { box-shadow: 0 0 15px #00d4ff; transform: translateY(-2px); transition: 0.3s; }
+      `}</style>
     </div>
   );
 }
 
 const styles = {
-  authPage: { height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#050505', position: 'relative', overflow: 'hidden' },
-  authCard: { background: 'rgba(255, 255, 255, 0.03)', backdropFilter: 'blur(20px)', padding: '40px', borderRadius: '30px', border: '1px solid rgba(255, 255, 255, 0.1)', width: '380px', textAlign: 'center', zIndex: 10 },
-  authTitle: { color: '#fff', marginBottom: '30px', fontSize: '28px', letterSpacing: '1px' },
-  authInput: { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '15px', borderRadius: '15px', color: '#fff', outline: 'none', transition: '0.3s' },
-  authBtn: { background: 'linear-gradient(45deg, #00d4ff, #ff00cc)', color: '#fff', border: 'none', padding: '15px', borderRadius: '15px', cursor: 'pointer', fontWeight: 'bold', marginTop: '10px' },
-  authToggle: { color: '#00d4ff', marginTop: '20px', cursor: 'pointer', fontSize: '14px', textDecoration: 'underline' },
-  container: { padding: '40px', background: 'linear-gradient(135deg, #050505, #1a1a2e, #16213e)', minHeight: '100vh', position: 'relative', overflow: 'hidden', color: '#fff' },
-  circle1: { position: 'absolute', top: '-50px', right: '-50px', width: '400px', height: '400px', background: 'rgba(0, 212, 255, 0.2)', borderRadius: '50%', filter: 'blur(100px)', zIndex: 0 },
-  circle2: { position: 'absolute', bottom: '-50px', left: '-50px', width: '400px', height: '400px', background: 'rgba(255, 0, 204, 0.15)', borderRadius: '50%', filter: 'blur(100px)', zIndex: 0 },
-  glassHeader: { position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 40px', background: 'rgba(255, 255, 255, 0.03)', backdropFilter: 'blur(15px)', borderRadius: '25px', border: '1px solid rgba(255, 255, 255, 0.1)', marginBottom: '40px' },
-  logo: { fontSize: '28px', fontWeight: 'bold', background: 'linear-gradient(to right, #00d4ff, #ff00cc)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' },
-  searchBar: { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '12px 25px', borderRadius: '30px', color: '#fff', outline: 'none', width: '300px' },
-  logoutBtn: { background: 'rgba(255,0,0,0.2)', color: '#ff4d4d', border: '1px solid rgba(255,0,0,0.3)', padding: '8px 20px', borderRadius: '15px', cursor: 'pointer', fontWeight: 'bold' },
-  mainGrid: { position: 'relative', zIndex: 1, display: 'grid', gridTemplateColumns: '320px 1fr', gap: '40px' },
-  glassSidebar: { background: 'rgba(255, 255, 255, 0.03)', backdropFilter: 'blur(20px)', padding: '30px', borderRadius: '30px', border: '1px solid rgba(255, 255, 255, 0.05)', height: 'fit-content' },
-  form: { display: 'flex', flexDirection: 'column', gap: '20px' },
-  glassInput: { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '15px', borderRadius: '12px', color: '#fff', outline: 'none' },
-  glassBtn: { background: 'linear-gradient(45deg, #00d4ff, #0055ff)', color: '#fff', border: 'none', padding: '15px', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold' },
-  categoryContainer: { display: 'flex', gap: '15px', marginBottom: '30px', flexWrap: 'wrap' },
-  catBtn: { padding: '10px 25px', borderRadius: '25px', color: '#fff', cursor: 'pointer', transition: '0.3s', fontSize: '14px', backdropFilter: 'blur(10px)' },
-  notesGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '25px' },
-  glassNoteCard: { background: 'rgba(255, 255, 255, 0.05)', backdropFilter: 'blur(12px)', padding: '25px', borderRadius: '25px', border: '1px solid rgba(255, 255, 255, 0.1)', transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)' },
-  badge: { background: 'rgba(0, 212, 255, 0.1)', color: '#00d4ff', padding: '5px 15px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold' },
-  actions: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  viewBtn: { textDecoration: 'none', color: '#fff', fontSize: '14px', background: 'rgba(0, 212, 255, 0.2)', padding: '8px 20px', borderRadius: '10px' },
-  iconBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '20px' }
+  container: { padding:'40px', background:'#050505', minHeight:'100vh' },
+  glassHeader: { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'20px', background:'rgba(255,255,255,0.03)', borderRadius:'20px', marginBottom:'30px', border:'1px solid rgba(255,255,255,0.05)' },
+  logo: { fontSize:'24px', background:'linear-gradient(to right, #00d4ff, #ff00cc)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', fontWeight:'bold' },
+  searchBar: { background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', padding:'10px 20px', borderRadius:'20px', color:'#fff', width:'300px', outline:'none' },
+  logoutBtn: { background:'rgba(255,0,0,0.1)', color:'#ff4d4d', border:'1px solid rgba(255,77,77,0.2)', padding:'8px 18px', borderRadius:'15px', cursor:'pointer', fontWeight:'bold' },
+  mainGrid: { display:'grid', gridTemplateColumns:'280px 1fr', gap:'25px' },
+  glassSidebar: { background:'rgba(255,255,255,0.03)', padding:'25px', borderRadius:'25px', height:'fit-content', border:'1px solid rgba(255,255,255,0.05)' },
+  form: { display:'flex', flexDirection:'column', gap:'12px' },
+  glassInput: { background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', padding:'12px', borderRadius:'12px', color:'#fff', outline:'none' },
+  glassBtn: { background:'linear-gradient(45deg, #00d4ff, #0055ff)', color:'#fff', border:'none', padding:'12px', borderRadius:'12px', fontWeight:'bold', cursor:'pointer' },
+  categoryContainer: { display:'flex', gap:'10px', marginBottom:'25px', overflowX:'auto' },
+  catBtn: { padding:'10px 22px', borderRadius:'20px', border:'none', color:'#fff', cursor:'pointer', whiteSpace:'nowrap' },
+  notesGrid: { display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(240px, 1fr))', gap:'20px' },
+  glassNoteCard: { background:'rgba(255,255,255,0.04)', padding:'22px', borderRadius:'20px', border:'1px solid rgba(255,255,255,0.1)' },
+  badge: { background:'rgba(0,212,255,0.1)', color:'#00d4ff', padding:'3px 10px', borderRadius:'10px', fontSize:'10px' },
+  actions: { display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:'15px' },
+  viewBtn: { textDecoration:'none', color:'#fff', background:'rgba(255,255,255,0.1)', padding:'8px 15px', borderRadius:'10px', fontSize:'12px' },
+  iconBtn: { background:'none', border:'none', cursor:'pointer', fontSize:'20px' },
+  authPage: { height:'100vh', display:'flex', justifyContent:'center', alignItems:'center', background:'#050505' },
+  authCard: { background:'rgba(255,255,255,0.03)', padding:'40px', borderRadius:'30px', border:'1px solid rgba(255,255,255,0.1)', width:'400px', textAlign:'center' },
+  authInput: { width:'100%', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', padding:'12px', borderRadius:'12px', color:'#fff', marginBottom:'5px', outline:'none' },
+  authBtn: { width:'100%', background:'linear-gradient(45deg, #00d4ff, #ff00cc)', border:'none', padding:'14px', borderRadius:'12px', color:'#fff', fontWeight:'bold', cursor:'pointer', marginTop:'10px' }
 };
 
-export default App;
+export default App;          
